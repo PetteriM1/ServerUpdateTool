@@ -76,7 +76,8 @@ public class App {
             BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.dir") + File.separatorChar + "servers.txt"));
             String input;
             while (((input = in.readLine()) != null)) {
-                if (!input.trim().isEmpty()) {
+                String str = input.trim();
+                if (!str.isEmpty() && !str.startsWith("#")) {
                     servers.add(input);
                 }
             }
