@@ -123,59 +123,91 @@ public class App {
                 file = file.replaceAll("\"(.+)\"", "$1");
             }
         }
-        long start = System.currentTimeMillis();
-        int count = 0;
+        boolean delete = file.startsWith("-delete");
+        if (delete) {
+            file = file.replace("-delete", "");
+        }
         File serverJar = new File(file);
         String jarName = serverJar.getName();
+        System.out.println("Do you want to" + (delete ? " delete " : " upload ") + jarName + " on the servers now? (y/N)");
+        if (!"y".equalsIgnoreCase(scanner.nextLine())) {
+            System.out.println("Aborting operation");
+            return;
+        }
+        long start = System.currentTimeMillis();
+        int count = 0;
         HttpEntity data = MultipartEntityBuilder.create().addPart("files", new FileBody(serverJar)).build();
-        System.out.println("Starting uploads of " + jarName + "...");
+        System.out.println("Starting" + (delete ? " deletion " : " uploads ") + "of " + jarName + "...");
         for (String server : servers) {
             try {
-                String requestUrl = host + "/api/client/servers/" + server + "/files/upload";
-                System.out.println("Connecting to " + requestUrl);
-                HttpClient client = HttpClientBuilder.create().build();
-                HttpGet requestGet = new HttpGet(requestUrl);
-                requestGet.setHeader("Accept", "application/json");
-                requestGet.setHeader("Content-Type", "application/json");
-                requestGet.setHeader("Authorization", "Bearer " + token);
-                HttpResponse response1 = client.execute(requestGet);
-                if (response1.getStatusLine().getStatusCode() != 200) {
-                    System.out.println("Failed: " + EntityUtils.toString(response1.getEntity()));
-                    System.out.println(response1);
-                    continue;
-                }
-                Map<String, Object> responses = new Gson().fromJson(EntityUtils.toString(response1.getEntity()), new MapTypeToken().getType());
-                String uploadUrl = (String) ((Map<?, ?>) responses.get("attributes")).get("url");
-                System.out.println("Uploading to " + uploadUrl);
-                HttpPost requestPost = new HttpPost(uploadUrl);
-                requestPost.setHeader("Authorization", "Bearer " + token);
-                requestPost.setEntity(data);
-                HttpResponse response2 = client.execute(requestPost);
-                if (response2.getStatusLine().getStatusCode() == 200) {
-                    System.out.println("File uploaded to " + server);
-                    System.out.println("Updating startup settings for " + server + "...");
-                   requestUrl = host + "/api/client/servers/" + server + "/startup/variable";
+                if (delete) {
+                    String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
                     System.out.println("Connecting to " + requestUrl);
-                    HttpPut requestPut = new HttpPut(requestUrl);
-                    requestPut.setHeader("Accept", "application/json");
-                    requestPut.setHeader("Content-Type", "application/json");
-                    requestPut.setHeader("Authorization", "Bearer " + token);
+                    HttpClient client = HttpClientBuilder.create().build();
+                    HttpPost request = new HttpPost(requestUrl);
+                    request.setHeader("Accept", "application/json");
+                    request.setHeader("Content-Type", "application/json");
+                    request.setHeader("Authorization", "Bearer " + token);
                     String json = "{\r\n" +
-                            "  \"key\": \"SERVER_JARFILE\",\r\n" +
-                            "  \"value\": \"" + jarName + "\"\r\n" +
+                            "  \"root\": \"/\",\r\n" +
+                            "  \"files\": [\"" + jarName + "\"]\r\n" +
                             "}";
-                    requestPut.setEntity(new StringEntity(json));
-                    HttpResponse response3 = client.execute(requestPut);
-                    if (response3.getStatusLine().getStatusCode() != 200) {
-                        System.out.println("Failed: " + EntityUtils.toString(response3.getEntity()));
-                        System.out.println(response3);
+                    request.setEntity(new StringEntity(json));
+                    HttpResponse response = client.execute(request);
+                    if (response.getStatusLine().getStatusCode() == 204) {
+                        System.out.println("File deleted on " + server);
+                        count++;
+                    } else {
+                        System.out.println("Failed: " + EntityUtils.toString(response.getEntity()));
+                        System.out.println(response);
+                    }
+                } else {
+                    String requestUrl = host + "/api/client/servers/" + server + "/files/upload";
+                    System.out.println("Connecting to " + requestUrl);
+                    HttpClient client = HttpClientBuilder.create().build();
+                    HttpGet requestGet = new HttpGet(requestUrl);
+                    requestGet.setHeader("Accept", "application/json");
+                    requestGet.setHeader("Content-Type", "application/json");
+                    requestGet.setHeader("Authorization", "Bearer " + token);
+                    HttpResponse response1 = client.execute(requestGet);
+                    if (response1.getStatusLine().getStatusCode() != 200) {
+                        System.out.println("Failed: " + EntityUtils.toString(response1.getEntity()));
+                        System.out.println(response1);
                         continue;
                     }
-                    System.out.println("Done! " + server + " is now up to date");
-                    count++;
-                } else {
-                    System.out.println("Failed: " + EntityUtils.toString(response2.getEntity()));
-                    System.out.println(response2);
+                    Map<String, Object> responses = new Gson().fromJson(EntityUtils.toString(response1.getEntity()), new MapTypeToken().getType());
+                    String uploadUrl = (String) ((Map<?, ?>) responses.get("attributes")).get("url");
+                    System.out.println("Uploading to " + uploadUrl);
+                    HttpPost requestPost = new HttpPost(uploadUrl);
+                    requestPost.setHeader("Authorization", "Bearer " + token);
+                    requestPost.setEntity(data);
+                    HttpResponse response2 = client.execute(requestPost);
+                    if (response2.getStatusLine().getStatusCode() == 200) {
+                        System.out.println("File uploaded to " + server);
+                        System.out.println("Updating startup settings for " + server + "...");
+                        requestUrl = host + "/api/client/servers/" + server + "/startup/variable";
+                        System.out.println("Connecting to " + requestUrl);
+                        HttpPut requestPut = new HttpPut(requestUrl);
+                        requestPut.setHeader("Accept", "application/json");
+                        requestPut.setHeader("Content-Type", "application/json");
+                        requestPut.setHeader("Authorization", "Bearer " + token);
+                        String json = "{\r\n" +
+                                "  \"key\": \"SERVER_JARFILE\",\r\n" +
+                                "  \"value\": \"" + jarName + "\"\r\n" +
+                                "}";
+                        requestPut.setEntity(new StringEntity(json));
+                        HttpResponse response3 = client.execute(requestPut);
+                        if (response3.getStatusLine().getStatusCode() != 200) {
+                            System.out.println("Failed: " + EntityUtils.toString(response3.getEntity()));
+                            System.out.println(response3);
+                            continue;
+                        }
+                        System.out.println("Done! " + server + " is now up to date");
+                        count++;
+                    } else {
+                        System.out.println("Failed: " + EntityUtils.toString(response2.getEntity()));
+                        System.out.println(response2);
+                    }
                 }
             } catch (Exception ex) {
                 ex.printStackTrace();
