@@ -16,15 +16,12 @@ import org.apache.http.util.EntityUtils;
 
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
+import java.util.*;
 
 public class App {
 
     public static void main(String[] args) {
-        System.out.println("ServerUpdateTool version 1.0");
+        System.out.println("Java server update tool for Pterodactyl Panel");
         System.out.println("Made by PetteriM1");
         System.out.println("---------------------");
         Scanner scanner = new Scanner(System.in);
@@ -129,16 +126,25 @@ public class App {
         }
         File serverJar = new File(file);
         String jarName = serverJar.getName();
-        System.out.println("Do you want to" + (delete ? " delete " : " upload ") + jarName + " on the servers now? (y/N)");
-        if (!"y".equalsIgnoreCase(scanner.nextLine())) {
-            System.out.println("Aborting operation");
-            return;
+        boolean confirmed = false;
+        while (!confirmed) {
+            System.out.println("Do you want to" + (delete ? " delete " : " upload ") + jarName + " on the servers now? (y/N)");
+            String input = scanner.nextLine();
+            if ("n".equalsIgnoreCase(input) || "no".equalsIgnoreCase(input)) {
+                System.out.println("Aborting operation");
+                return;
+            } else if ("y".equalsIgnoreCase(input) || "yes".equalsIgnoreCase(input)) {
+                confirmed = true;
+            }
         }
         long start = System.currentTimeMillis();
-        int count = 0;
+        int success = 0;
+        int total = 0;
         HttpEntity data = MultipartEntityBuilder.create().addPart("files", new FileBody(serverJar)).build();
         System.out.println("Starting" + (delete ? " deletion " : " uploads ") + "of " + jarName + "...");
         for (String server : servers) {
+            total++;
+            System.out.println("Server " + total + " of " + servers.size());
             try {
                 if (delete) {
                     String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
@@ -155,8 +161,8 @@ public class App {
                     request.setEntity(new StringEntity(json));
                     HttpResponse response = client.execute(request);
                     if (response.getStatusLine().getStatusCode() == 204) {
-                        System.out.println("File deleted on " + server);
-                        count++;
+                        System.out.println("File deleted successfully on " + server);
+                        success++;
                     } else {
                         System.out.println("Failed: " + EntityUtils.toString(response.getEntity()));
                         System.out.println(response);
@@ -203,7 +209,7 @@ public class App {
                             continue;
                         }
                         System.out.println("Done! " + server + " is now up to date");
-                        count++;
+                        success++;
                     } else {
                         System.out.println("Failed: " + EntityUtils.toString(response2.getEntity()));
                         System.out.println(response2);
@@ -214,7 +220,7 @@ public class App {
             }
         }
         long time = (System.currentTimeMillis() - start) / 1000;
-        System.out.println("All operations done! " + count + " server" + ((count != 1) ? "s " : ' ') + "updated in " + time + " second" + ((time != 1) ? 's' : ' '));
+        System.out.println("All operations done! " + success + " server" + ((success != 1) ? "s " : ' ') + "updated successfully in " + time + " second" + ((time != 1) ? 's' : ' '));
     }
 
     private static class MapTypeToken extends TypeToken<Map<String, Object>> {
