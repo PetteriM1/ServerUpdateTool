@@ -75,7 +75,11 @@ public class App {
             while (((input = in.readLine()) != null)) {
                 String str = input.trim();
                 if (!str.isEmpty() && !str.startsWith("#")) {
-                    servers.add(input);
+                    if (servers.contains(input)) {
+                        System.out.println("Warning: Duplicated server entry: " + input);
+                    } else {
+                        servers.add(input);
+                    }
                 }
             }
             in.close();
@@ -121,7 +125,12 @@ public class App {
             if (path != null) {
                 pathLowerCase = path.toLowerCase();
                 if (pathLowerCase.endsWith(".jar") || pathLowerCase.endsWith(".jar;")) {
-                    files.add(path.replace(".jar;", ".jar").replaceAll("\"(.+)\"", "$1"));
+                    String file = path.replace(".jar;", ".jar").replaceAll("\"(.+)\"", "$1");
+                    if (files.contains(file)) {
+                        System.out.println("Warning: Duplicated upload entry: " + file);
+                    } else {
+                        files.add(file);
+                    }
                 }
             }
         }
