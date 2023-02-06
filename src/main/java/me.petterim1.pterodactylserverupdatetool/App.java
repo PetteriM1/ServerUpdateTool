@@ -8,6 +8,7 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
@@ -16,6 +17,7 @@ import org.apache.http.util.EntityUtils;
 
 
 import java.io.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class App {
@@ -154,10 +156,14 @@ public class App {
             }
             File serverJar = new File(file);
             String jarName = serverJar.getName();
-            long start = System.currentTimeMillis();
+            HttpEntity data = null;
+            if (!delete) {
+                jarName = new SimpleDateFormat("ddMMyy-HHmmss-").format(new Date()) + jarName;
+                data = MultipartEntityBuilder.create().addPart("files", new FileBody(serverJar, ContentType.DEFAULT_BINARY, jarName)).build();
+            }
             int success = 0;
             int total = 0;
-            HttpEntity data = MultipartEntityBuilder.create().addPart("files", new FileBody(serverJar)).build();
+            long start = System.currentTimeMillis();
             System.out.println("Starting" + (delete ? " deletion " : " uploads ") + "of " + jarName + "...");
             for (String server : servers) {
                 total++;
