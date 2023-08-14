@@ -18,6 +18,8 @@ import org.apache.http.util.EntityUtils;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 public class App {
@@ -170,25 +172,50 @@ public class App {
                 System.out.println("Server " + total + " of " + servers.size());
                 try {
                     if (delete) {
-                        String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
-                        System.out.println("Connecting to " + requestUrl);
-                        HttpClient client = HttpClientBuilder.create().build();
-                        HttpPost request = new HttpPost(requestUrl);
-                        request.setHeader("Accept", "application/json");
-                        request.setHeader("Content-Type", "application/json");
-                        request.setHeader("Authorization", "Bearer " + token);
-                        String json = "{\r\n" +
-                                "  \"root\": \"/\",\r\n" +
-                                "  \"files\": [\"" + jarName + "\"]\r\n" +
-                                "}";
-                        request.setEntity(new StringEntity(json));
-                        HttpResponse response = client.execute(request);
-                        if (response.getStatusLine().getStatusCode() == 204) {
-                            System.out.println("File deleted successfully on " + server);
+                        if (file.startsWith("*") && file.length() > 1) {
+                            String[] cmdParts = file.substring(1).split(" ", 2);
+                            if (cmdParts.length != 2) throw new IllegalArgumentException("Not in format '-delete*<n hours or older> <name>.jar'\nExpected 2, found " + cmdParts.length);
+                            int nHours = Integer.parseInt(cmdParts[0]);
+                            if (nHours < 0) throw new IllegalArgumentException("<n hours or older> can't be negative!");
+                            String requestUrl = host + "/api/client/servers/" + server + "/files/list";
+                            System.out.println("Connecting to " + requestUrl);
+                            HttpClient client = HttpClientBuilder.create().build();
+                            HttpGet requestGet = new HttpGet(requestUrl);
+                            requestGet.setHeader("Accept", "application/json");
+                            requestGet.setHeader("Content-Type", "application/json");
+                            requestGet.setHeader("Authorization", "Bearer " + token);
+                            HttpResponse response1 = client.execute(requestGet);
+                            if (response1.getStatusLine().getStatusCode() != 200) {
+                                System.out.println("Failed: " + EntityUtils.toString(response1.getEntity()));
+                                System.out.println(response1);
+                                continue;
+                            }
+                            Map<String, Object> responses = new Gson().fromJson(EntityUtils.toString(response1.getEntity()), new MapTypeToken().getType());
+                            List<Map<String, Object>> filesList = (List<Map<String, Object>>) responses.get("data");
+                            for (Map<String, Object> fileInfo : filesList) {
+                                Map<String, Object> attributes = (Map<String, Object>) fileInfo.get("attributes");
+                                if (attributes != null) {
+                                    Boolean isFile = (Boolean) attributes.get("is_file");
+                                    if (isFile != null && isFile) {
+                                        String modifiedAt = (String) attributes.get("modified_at");
+                                        if (modifiedAt != null) {
+                                            OffsetDateTime createdTime = OffsetDateTime.parse(modifiedAt);
+                                            OffsetDateTime currentTime = OffsetDateTime.now();
+                                            long createdHoursAgo = Duration.between(createdTime, currentTime).toHours();
+                                            if (createdHoursAgo >= nHours || (createdHoursAgo == 0 && nHours == 0)) {
+                                                String name = (String) attributes.get("name");
+                                                if (name != null && name.endsWith(cmdParts[1])) {
+                                                    System.out.println("Found " + name);
+                                                    deletePart(server, host, token, name);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             success++;
-                        } else {
-                            System.out.println("Failed: " + EntityUtils.toString(response.getEntity()));
-                            System.out.println(response);
+                        } else if (deletePart(server, host, token, file)) {
+                            success++;
                         }
                     } else {
                         String requestUrl = host + "/api/client/servers/" + server + "/files/upload";
@@ -247,6 +274,30 @@ public class App {
             System.out.println("Operation " + operation + "/" + files.size() + " done! " + success + " server" + ((success != 1) ? "s " : ' ') + "updated successfully in " + time + " second" + ((time != 1) ? 's' : ' '));
         }
         System.out.println("All operations done!");
+    }
+
+    private static boolean deletePart(String server, String host, String token, String jarName) throws Exception {
+        String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
+        System.out.println("Connecting to " + requestUrl);
+        HttpClient client = HttpClientBuilder.create().build();
+        HttpPost request = new HttpPost(requestUrl);
+        request.setHeader("Accept", "application/json");
+        request.setHeader("Content-Type", "application/json");
+        request.setHeader("Authorization", "Bearer " + token);
+        String json = "{\r\n" +
+                "  \"root\": \"/\",\r\n" +
+                "  \"files\": [\"" + jarName + "\"]\r\n" +
+                "}";
+        request.setEntity(new StringEntity(json));
+        HttpResponse response = client.execute(request);
+        if (response.getStatusLine().getStatusCode() == 204) {
+            System.out.println("File deleted successfully on " + server);
+            return true;
+        } else {
+            System.out.println("Failed: " + EntityUtils.toString(response.getEntity()));
+            System.out.println(response);
+            return false;
+        }
     }
 
     private static class MapTypeToken extends TypeToken<Map<String, Object>> {
