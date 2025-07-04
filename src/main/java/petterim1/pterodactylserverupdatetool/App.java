@@ -47,7 +47,9 @@ public class App {
             host = in.readLine();
             in.close();
             System.out.println("Target host: " + host);
-        } catch (Exception e) {
+        } catch (Exception ex) {
+            System.out.println("Failed to load host");
+            ex.printStackTrace();
         }
 
         boolean needsSaving = false;
@@ -76,48 +78,20 @@ public class App {
                 BufferedWriter out = new BufferedWriter(new FileWriter(System.getProperty("user.dir") + File.separatorChar + "host.txt"));
                 out.write(host);
                 out.close();
-            } catch (Exception e) {
+            } catch (Exception ex) {
                 System.out.println("Failed to save the host address");
-                e.printStackTrace();
+                ex.printStackTrace();
             }
         }
 
-        System.out.println("Loading servers...");
-        try {
-            new File(System.getProperty("user.dir") + File.separatorChar + "servers.txt").createNewFile();
-        } catch (Exception ignore) {
-        }
-
-        List<String> servers = new ArrayList<>();
-        try {
-            BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.dir") + File.separatorChar + "servers.txt"));
-            String input;
-            while (((input = in.readLine()) != null)) {
-                String str = input.trim();
-                if (!str.isEmpty() && !str.startsWith("#")) {
-                    if (servers.contains(input)) {
-                        System.out.println("Warning: Duplicated server entry: " + input);
-                    } else {
-                        servers.add(input);
-                    }
-                }
-            }
-            in.close();
-        } catch (Exception e) {
-        }
-
-        if (servers.isEmpty()) {
-            System.out.println("The list of servers is empty. Please list the server IDs in servers.txt");
-            return;
-        }
-
-        System.out.println("Loaded " + servers.size() + " servers: " + servers);
         System.out.println("Loading saved API token...");
         try {
             BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.dir") + File.separatorChar + "token.txt"));
             token = in.readLine();
             in.close();
-        } catch (Exception e) {
+        } catch (Exception ex) {
+            System.out.println("Failed to load API token");
+            ex.printStackTrace();
         }
 
         needsSaving = false;
@@ -137,11 +111,106 @@ public class App {
                 BufferedWriter out = new BufferedWriter(new FileWriter(System.getProperty("user.dir") + File.separatorChar + "token.txt"));
                 out.write(token);
                 out.close();
-            } catch (Exception e) {
+            } catch (Exception ex) {
                 System.out.println("Failed to save the API token");
-                e.printStackTrace();
+                ex.printStackTrace();
             }
         }
+
+        Map<String, String> serverNames = new HashMap<>();
+        {
+            System.out.println("Fetching server names...");
+            HttpClient client = HttpClientBuilder.create().build();
+            try {
+                String requestUrl = host + "/api/client?type=admin";
+                System.out.println("Connecting to " + requestUrl);
+                HttpGet requestGet = new HttpGet(requestUrl);
+                requestGet.setHeader("Accept", "application/json");
+                requestGet.setHeader("Content-Type", "application/json");
+                requestGet.setHeader("Authorization", "Bearer " + token);
+                HttpResponse response = client.execute(requestGet);
+
+                if (response.getStatusLine().getStatusCode() != 200) {
+                    showError(response);
+                    return;
+                }
+
+                Map<String, Object> serverList = new Gson().fromJson(EntityUtils.toString(response.getEntity()), MAP_TYPE_TOKEN);
+                List<Map<?, ?>> serverData = (List<Map<?, ?>>) serverList.get("data");
+                for (Map<?, ?> map : serverData) {
+                    Map<?, ?> attributes = ((Map<?, ?>) map.get("attributes"));
+                    serverNames.put((String) attributes.get("identifier"), (String) attributes.get("name"));
+                }
+
+                try {
+                    Map<?, Map<?, ?>> meta = (Map<?, Map<?, ?>>) serverList.get("meta");
+                    Map pagination = meta.get("pagination");
+                    double totalPages = (double) pagination.get("total_pages");
+                    int pages = (int) totalPages;
+                    if (pages > 1) {
+                        for (int page = 2; page <= pages; page++) {
+                            requestUrl = host + "/api/application/servers?type=admin&page=" + page;
+                            System.out.println("Connecting to " + requestUrl);
+                            requestGet = new HttpGet(requestUrl);
+                            requestGet.setHeader("Accept", "application/json");
+                            requestGet.setHeader("Content-Type", "application/json");
+                            requestGet.setHeader("Authorization", "Bearer " + token);
+                            response = client.execute(requestGet);
+
+                            if (response.getStatusLine().getStatusCode() != 200) {
+                                showError(response);
+                                return;
+                            }
+
+                            serverList = new Gson().fromJson(EntityUtils.toString(response.getEntity()), MAP_TYPE_TOKEN);
+                            serverData = (List<Map<?, ?>>) serverList.get("data");
+                            for (Map<?, ?> map : serverData) {
+                                Map<?, ?> attributes = ((Map<?, ?>) map.get("attributes"));
+                                serverNames.put((String) attributes.get("identifier"), (String) attributes.get("name"));
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+
+        System.out.println("Loading servers...");
+        try {
+            new File(System.getProperty("user.dir") + File.separatorChar + "servers.txt").createNewFile();
+        } catch (Exception ignore) {
+        }
+
+        List<String> servers = new ArrayList<>();
+        try {
+            BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.dir") + File.separatorChar + "servers.txt"));
+            String input;
+            while (((input = in.readLine()) != null)) {
+                String str = input.trim();
+                if (!str.isEmpty() && !str.startsWith("#")) {
+                    if (servers.contains(input)) {
+                        System.out.println("Warning: Duplicated server entry: " + input);
+                    } else if (!serverNames.containsKey(input)) {
+                        System.out.println("Warning: Unknown server entry: " + input);
+                    } else {
+                        servers.add(input);
+                    }
+                }
+            }
+            in.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        if (servers.isEmpty()) {
+            System.out.println("The list of servers is empty. Please list the server IDs in servers.txt");
+            return;
+        }
+
+        System.out.println("Loaded " + servers.size() + " servers: " + servers);
 
         String path = null;
         String pathLowerCase = null;
@@ -211,7 +280,9 @@ public class App {
 
             for (String server : servers) {
                 total++;
-                System.out.println("Server " + total + " of " + servers.size());
+                String serverName = serverNames.get(server);
+                System.out.println(serverName + " (" + total + " of " + servers.size() + " servers)");
+
                 try {
                     if (delete) {
                         if (file.startsWith("*") && file.length() > 1) {
@@ -256,7 +327,7 @@ public class App {
                                                 String name = (String) attributes.get("name");
                                                 if (name != null && name.endsWith(cmdParts[1])) {
                                                     System.out.println("Found " + name);
-                                                    deletePart(server, host, token, name);
+                                                    deletePart(server, serverName, host, token, name);
                                                 }
                                             }
                                         }
@@ -265,7 +336,7 @@ public class App {
                             }
 
                             success++;
-                        } else if (deletePart(server, host, token, file)) {
+                        } else if (deletePart(server, serverName, host, token, file)) {
                             success++;
                         }
                     } else {
@@ -299,7 +370,7 @@ public class App {
                                         if (name != null && !jarFullName.equalsIgnoreCase(name)) {
                                             String fileNameLowerCase = name.toLowerCase(Locale.ROOT);
                                             if (fileNameLowerCase.startsWith(pluginNameLowerCase) && fileNameLowerCase.endsWith(".jar")) {
-                                                System.out.println(server + " has " + name);
+                                                System.out.println(serverName + " has " + name);
                                                 pluginFound = true;
                                                 break;
                                             }
@@ -309,7 +380,7 @@ public class App {
                             }
 
                             if (!pluginFound) {
-                                System.out.println(server + " doesn't have the plugin: " + pluginNameLowerCase);
+                                System.out.println(serverName + " doesn't have the plugin: " + pluginNameLowerCase);
                                 continue;
                             }
                         }
@@ -340,10 +411,12 @@ public class App {
                         HttpResponse response2 = client.execute(requestPost);
 
                         if (response2.getStatusLine().getStatusCode() == 200) {
-                            System.out.println("File uploaded to " + server);
+                            System.out.println("File uploaded to " + serverName);
 
                             if (plugin) {
-                                System.out.println("Renaming old plugin versions for " + server + "...");
+                                String pluginNameLowerCase = uploadJar.getName().split("-")[0].toLowerCase(Locale.ROOT);
+
+                                System.out.println("Renaming old " + pluginNameLowerCase + " versions for " + serverName + "...");
                                 requestUrl = host + "/api/client/servers/" + server + "/files/list?directory=%2Fplugins";
                                 System.out.println("Connecting to " + requestUrl);
                                 client = HttpClientBuilder.create().build();
@@ -358,8 +431,6 @@ public class App {
                                     continue;
                                 }
 
-                                String pluginNameLowerCase = uploadJar.getName().split("-")[0].toLowerCase(Locale.ROOT);
-
                                 responses = GSON.fromJson(EntityUtils.toString(response1.getEntity()), MAP_TYPE_TOKEN);
                                 List<Map<String, Object>> filesList = (List<Map<String, Object>>) responses.get("data");
                                 for (Map<String, Object> fileInfo : filesList) {
@@ -372,14 +443,14 @@ public class App {
                                                 String fileNameLowerCase = name.toLowerCase(Locale.ROOT);
                                                 if (fileNameLowerCase.startsWith(pluginNameLowerCase) && fileNameLowerCase.endsWith(".jar")) {
                                                     System.out.println("Found " + name);
-                                                    renamePart(server, host, token, name);
+                                                    renamePart(server, serverName, host, token, name);
                                                 }
                                             }
                                         }
                                     }
                                 }
                             } else {
-                                System.out.println("Updating startup settings for " + server + "...");
+                                System.out.println("Updating startup settings for " + serverName + "...");
                                 requestUrl = host + "/api/client/servers/" + server + "/startup/variable";
                                 System.out.println("Connecting to " + requestUrl);
                                 HttpPut requestPut = new HttpPut(requestUrl);
@@ -399,7 +470,7 @@ public class App {
                                 }
                             }
 
-                            System.out.println("Done! " + server + " is now up to date");
+                            System.out.println("Done! " + serverName + " is now up to date");
                             success++;
                         } else {
                             showError(response2);
@@ -427,7 +498,7 @@ public class App {
         System.out.println(response);
     }
 
-    private static boolean deletePart(String server, String host, String token, String name) {
+    private static boolean deletePart(String server, String serverName, String host, String token, String name) {
         try {
             String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
             System.out.println("Connecting to " + requestUrl);
@@ -444,7 +515,7 @@ public class App {
             HttpResponse response = client.execute(request);
 
             if (response.getStatusLine().getStatusCode() == 204) {
-                System.out.println("File deleted successfully on " + server);
+                System.out.println("File deleted successfully on " + serverName);
                 return true;
             } else {
                 showError(response);
@@ -455,7 +526,7 @@ public class App {
         return false;
     }
 
-    private static boolean renamePart(String server, String host, String token, String name) {
+    private static boolean renamePart(String server, String serverName, String host, String token, String name) {
         try {
             String requestUrl = host + "/api/client/servers/" + server + "/files/rename";
             System.out.println("Connecting to " + requestUrl);
@@ -475,7 +546,7 @@ public class App {
             HttpResponse response = client.execute(request);
 
             if (response.getStatusLine().getStatusCode() == 204) {
-                System.out.println("File renamed successfully on " + server);
+                System.out.println("File renamed successfully on " + serverName);
                 return true;
             } else {
                 showError(response);
