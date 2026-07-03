@@ -210,17 +210,29 @@ public class App {
             return;
         }
 
-        System.out.println("Loaded " + servers.size() + " servers: " + servers);
+        List<String> serversWithNames = new ArrayList<>(servers.size());
+        for (String server : servers) {
+            String name = serverNames.get(server);
+            serversWithNames.add(server + ":" + name);
+        }
+        System.out.println("Loaded " + servers.size() + " servers: " + serversWithNames);
 
         String path = null;
         String pathLowerCase = null;
         while (path == null || !pathLowerCase.endsWith(".jar")) {
-            System.out.println("Please input the path of the new server JAR file. Use -delete to delete a file and ; to list next file.");
+            System.out.println("Input path of the new server JAR. Use -delete <file> or -delete *hours <file> to delete files and ; to list next file. Use -plugin <file> to upload plugin update or -plugin *<file> to upload new plugin.");
+
             path = scanner.nextLine();
             if (path != null) {
                 pathLowerCase = path.toLowerCase(Locale.ROOT);
                 if (pathLowerCase.endsWith(".jar") || pathLowerCase.endsWith(".jar;")) {
                     String file = path.replace(".jar;", ".jar").replaceAll("\"(.+)\"", "$1");
+
+                    if (file.length() <= 1) {
+                        System.out.println("Warning: Invalid file: " + file);
+                        continue;
+                    }
+
                     if (files.contains(file)) {
                         System.out.println("Warning: Duplicated upload entry: " + file);
                     } else {
@@ -232,6 +244,7 @@ public class App {
 
         System.out.println("Do you want to run following operations on the servers now? (y/N)");
         System.out.println(files);
+
         boolean confirmed = false;
         while (!confirmed) {
             String input = scanner.nextLine();
@@ -253,14 +266,19 @@ public class App {
             boolean plugin = file.startsWith("-plugin");
 
             if (delete) {
-                file = file.replace("-delete", "");
+                file = file.replaceAll("-delete\\s*", "");
             }
 
             if (plugin) {
-                file = file.replace("-plugin", "");
+                file = file.replaceAll("-plugin\\s*", "");
             }
 
-            File uploadJar = new File(file);
+            String realFile = file;
+            if (plugin && file.startsWith("*")) {
+                realFile = file.substring(1);
+            }
+
+            File uploadJar = new File(realFile);
             String jarFullName = uploadJar.getName();
             HttpEntity data = null;
 
@@ -285,10 +303,10 @@ public class App {
 
                 try {
                     if (delete) {
-                        if (file.startsWith("*") && file.length() > 1) {
+                        if (file.startsWith("*")) {
                             String[] cmdParts = file.substring(1).split(" ", 2);
                             if (cmdParts.length != 2) {
-                                throw new IllegalArgumentException("Not in format '-delete*<n hours or older> <name>.jar'\nExpected 2, found " + cmdParts.length);
+                                throw new IllegalArgumentException("Not in format '-delete *<n hours or older> <name>.jar'\nExpected 2, found " + cmdParts.length);
                             }
 
                             int nHours = Integer.parseInt(cmdParts[0]);
@@ -341,6 +359,11 @@ public class App {
                         }
                     } else {
                         if (plugin) {
+                            boolean allowNew = file.startsWith("*");
+                            if (allowNew) {
+                                file = file.substring(1);
+                            }
+
                             boolean pluginFound = false;
 
                             String requestUrl = host + "/api/client/servers/" + server + "/files/list?directory=%2Fplugins";
@@ -380,8 +403,12 @@ public class App {
                             }
 
                             if (!pluginFound) {
-                                System.out.println(serverName + " doesn't have the plugin: " + pluginNameLowerCase);
-                                continue;
+                                if (allowNew) {
+                                    System.out.println("Uploading as new plugin");
+                                } else {
+                                    System.out.println(serverName + " doesn't have the plugin: " + pluginNameLowerCase);
+                                    continue;
+                                }
                             }
                         }
 
