@@ -263,18 +263,17 @@ public class App {
         int operation = 0;
         for (String file : files) {
             boolean delete = file.startsWith("-delete");
-            boolean plugin = file.startsWith("-plugin");
-
             if (delete) {
                 file = file.replaceAll("-delete\\s*", "");
             }
 
+            boolean plugin = file.startsWith("-plugin");
             if (plugin) {
                 file = file.replaceAll("-plugin\\s*", "");
             }
 
             String realFile = file;
-            if (plugin && file.startsWith("*")) {
+            if (plugin && !delete && file.startsWith("*")) {
                 realFile = file.substring(1);
             }
 
@@ -306,7 +305,7 @@ public class App {
                         if (file.startsWith("*")) {
                             String[] cmdParts = file.substring(1).split(" ", 2);
                             if (cmdParts.length != 2) {
-                                throw new IllegalArgumentException("Not in format '-delete *<n hours or older> <name>.jar'\nExpected 2, found " + cmdParts.length);
+                                throw new IllegalArgumentException("Not in format '-delete" + (plugin ? "-plugin" : "") + " *<n hours or older> <name>.jar'\nExpected 2, found " + cmdParts.length);
                             }
 
                             int nHours = Integer.parseInt(cmdParts[0]);
@@ -314,7 +313,7 @@ public class App {
                                 throw new IllegalArgumentException("<n hours or older> can't be negative!");
                             }
 
-                            String requestUrl = host + "/api/client/servers/" + server + "/files/list";
+                            String requestUrl = host + "/api/client/servers/" + server + "/files/list" + (plugin ? "?directory=%2Fplugins" : "");
                             System.out.println("Connecting to " + requestUrl);
                             HttpClient client = HttpClientBuilder.create().build();
                             HttpGet requestGet = new HttpGet(requestUrl);
@@ -327,6 +326,8 @@ public class App {
                                 showError(response1);
                                 continue;
                             }
+
+                            String deleteName = cmdParts[1].split("-", 2)[0].split("\\.", 2)[0];
 
                             Map<String, Object> responses = GSON.fromJson(EntityUtils.toString(response1.getEntity()), MAP_TYPE_TOKEN);
                             List<Map<String, Object>> filesList = (List<Map<String, Object>>) responses.get("data");
@@ -343,9 +344,9 @@ public class App {
 
                                             if (createdHoursAgo >= nHours || (createdHoursAgo == 0 && nHours == 0)) {
                                                 String name = (String) attributes.get("name");
-                                                if (name != null && name.endsWith(cmdParts[1])) {
+                                                if (name != null && name.endsWith("OLD") && name.split("-", 2)[0].split("\\.", 2)[0].equalsIgnoreCase(deleteName)) {
                                                     System.out.println("Found " + name);
-                                                    deletePart(server, serverName, host, token, name);
+                                                    deletePart(server, serverName, host, token, name, plugin);
                                                 }
                                             }
                                         }
@@ -354,7 +355,7 @@ public class App {
                             }
 
                             success++;
-                        } else if (deletePart(server, serverName, host, token, file)) {
+                        } else if (deletePart(server, serverName, host, token, file, plugin)) {
                             success++;
                         }
                     } else {
@@ -525,7 +526,7 @@ public class App {
         System.out.println(response);
     }
 
-    private static boolean deletePart(String server, String serverName, String host, String token, String name) {
+    private static boolean deletePart(String server, String serverName, String host, String token, String name, boolean plugin) {
         try {
             String requestUrl = host + "/api/client/servers/" + server + "/files/delete";
             System.out.println("Connecting to " + requestUrl);
@@ -536,7 +537,7 @@ public class App {
             request.setHeader("Authorization", "Bearer " + token);
             String json = "{" +
                                 "\"root\":\"/\"," +
-                                "\"files\":[\"" + name + "\"]" +
+                                "\"files\":[\"" + (plugin ? "plugins/" : "") + name + "\"]" +
                             "}";
             request.setEntity(new StringEntity(json));
             HttpResponse response = client.execute(request);
