@@ -295,6 +295,11 @@ public class App {
             long start = System.currentTimeMillis();
             System.out.println("Starting" + (delete ? " deletion " : " uploads ") + (plugin ? "of plugins/" : "of ") + jarFullName + "...");
 
+            boolean allowNew = file.startsWith("*");
+            if (allowNew) {
+                file = file.substring(1);
+            }
+
             for (String server : servers) {
                 total++;
                 String serverName = serverNames.get(server);
@@ -360,11 +365,6 @@ public class App {
                         }
                     } else {
                         if (plugin) {
-                            boolean allowNew = file.startsWith("*");
-                            if (allowNew) {
-                                file = file.substring(1);
-                            }
-
                             boolean pluginFound = false;
 
                             String requestUrl = host + "/api/client/servers/" + server + "/files/list?directory=%2Fplugins";
